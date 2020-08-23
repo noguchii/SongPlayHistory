@@ -1,5 +1,7 @@
 ﻿using System;
+using System.Linq;
 using System.Reflection;
+using BS_Utils.Utilities;
 using HarmonyLib;
 using TMPro;
 using UnityEngine;
@@ -13,6 +15,7 @@ namespace SongPlayHistory.HarmonyPatches
     {
         private static Sprite _thumbsUp;
         private static Sprite _thumbsDown;
+        private static readonly string ClearedLevelPrefix = "0_";
 
         public static bool Prepare()
         {
@@ -21,6 +24,14 @@ namespace SongPlayHistory.HarmonyPatches
 
             return SPHModel.ScanVoteData();
         }
+
+        /*
+        * LevelTypeIcon0 : Standard
+        * LevelTypeIcon1 : OneSaber
+        * LevelTypeIcon2 : NoArrow
+        * LevelTypeIcon3 : 360 Degree
+        * LevelTypeIcon4 : 90 Degree
+        */
 
         [HarmonyAfter(new string[] { "com.kyle1413.BeatSaber.SongCore" })]
         public static void Postfix(LevelListTableCell __instance, IPreviewBeatmapLevel level, bool isFavorite,
@@ -37,6 +48,36 @@ namespace SongPlayHistory.HarmonyPatches
             Image voteIcon = null;
             foreach (var image in __instance.GetComponentsInChildren<Image>())
             {
+                // Forked =====
+                if (image.name == "LevelTypeIcon0" || image.name.IndexOf(ClearedLevelPrefix) >= 0)
+                {
+                    if (SPHModel.BestRecords != null && SPHModel.BestRecords.TryGetValue(level.levelID, out var record))
+                    {
+                        // Plugin.Log?.Info(level.levelID);
+
+                        var mostDifficulty = level.previewDifficultyBeatmapSets
+                            .Where(d => d.beatmapCharacteristic.serializedName == "Standard")
+                            .First()?
+                            .beatmapDifficulties
+                                .Select(b => b.SerializedName().BeatmapDifficultyFromSerializedName(out var difficulty) ? (int)difficulty : -100)
+                                .OrderByDescending(x => x)
+                                .First();
+
+                        if (mostDifficulty.HasValue && mostDifficulty.Value == record.Difficulty && record.IsCleared)
+                        {
+                            image.name = ClearedLevelPrefix + level.levelID;
+                            image.color = Color.yellow;
+                        }
+                    }
+                    else
+                    {
+                        image.name = "LevelTypeIcon0";
+                    }
+
+                    continue;
+                }
+                // ===========
+
                 // For performance reason, avoid using Linq.
                 if (image.name == "Vote")
                 {
@@ -107,30 +148,39 @@ namespace SongPlayHistory.HarmonyPatches
                 return null;
             }
         }
-    }
 
-    [HarmonyPatch(typeof(LevelListTableCell))]
-    [HarmonyPatch("RefreshVisuals")]
-    internal class RefreshVisuals
-    {
-        public static void Postfix(LevelListTableCell __instance,
-            bool ____selected,
-            bool ____highlighted,
-            Color ____beatmapCharacteristicImagesNormalColor,
-            Color ____selectedHighlightElementsColor)
+        [HarmonyPatch(typeof(LevelListTableCell))]
+        [HarmonyPatch("RefreshVisuals")]
+        internal class RefreshVisuals
         {
-            foreach (var image in __instance.GetComponentsInChildren<Image>())
+            public static void Postfix(LevelListTableCell __instance,
+                bool ____selected,
+                bool ____highlighted,
+                Color ____beatmapCharacteristicImagesNormalColor,
+                Color ____selectedHighlightElementsColor)
             {
-                // For performance reason, avoid using Linq.
-                if (image.name != "Vote")
-                    continue;
 
-                if (____selected)
-                    image.color = ____highlighted ? ____selectedHighlightElementsColor : Color.black;
-                else
-                    image.color = ____beatmapCharacteristicImagesNormalColor;
+                foreach (var image in __instance.GetComponentsInChildren<Image>())
+                {
+                    // Fork ======
+                    if (image.name.IndexOf(ClearedLevelPrefix) >= 0)
+                    {
+                        image.color = ____selected ? ____selectedHighlightElementsColor : Color.yellow;
+                        continue;
+                    }
+                    // ===========
 
-                break;
+                    // For performance reason, avoid using Linq.
+                    if (image.name != "Vote")
+                        continue;
+
+                    if (____selected)
+                        image.color = ____highlighted ? ____selectedHighlightElementsColor : Color.black;
+                    else
+                        image.color = ____beatmapCharacteristicImagesNormalColor;
+
+                    break;
+                }
             }
         }
     }

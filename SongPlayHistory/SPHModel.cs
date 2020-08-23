@@ -8,6 +8,24 @@ using System.Linq;
 
 namespace SongPlayHistory
 {
+    // Forked ======
+    internal class BestRecord
+    {
+        public BestRecord(int difficulty, int lastNote, bool noFail)
+        {
+            Difficulty = difficulty;
+            LastNote = lastNote;
+            NoFail = noFail;
+            IsCleared = LastNote == -1 && !NoFail;
+        }
+
+        public int Difficulty { get; private set; }
+        public int LastNote { get; private set; }
+        public bool NoFail { get; private set; }
+        public bool IsCleared { get; private set; }
+    }
+    // =============
+
     internal class Record
     {
         public long Date = 0L;
@@ -49,6 +67,10 @@ namespace SongPlayHistory
 
         public static Dictionary<string, IList<Record>> Records { get; set; } = new Dictionary<string, IList<Record>>();
         public static Dictionary<string, UserVote> Votes { get; private set; } = new Dictionary<string, UserVote>();
+
+        // Forked ========
+        public static Dictionary<string, BestRecord> BestRecords;
+        // ===============
 
         private static DateTime _voteLastWritten;
 
@@ -194,6 +216,27 @@ namespace SongPlayHistory
                 {
                     throw new JsonReaderException("Unable to deserialize an empty JSON string.");
                 }
+
+                // Forked ========
+                var dictionary = new Dictionary<string, BestRecord>();
+                foreach (var g in Records.GroupBy(r=> r.Key.Substring(0, r.Key.IndexOf("___"))))
+                {
+                    var difficulty = g.Max(k => int.Parse(k.Key.Substring(k.Key.LastIndexOf("___") - 1, 1)));
+                    var record = g.OrderByDescending(k => k.Key).First().Value
+                            .OrderByDescending(r => r.LastNote == -1 ? r.RawScore + (long)int.MaxValue : r.RawScore).First();
+                    // Plugin.Log?.Info($"{g.Key} : {record.RawScore}/{record.LastNote}");
+
+                    dictionary[g.Key] = new BestRecord(
+                        difficulty,
+                        record.LastNote,
+                        (record.Param & (int)Param.NoFail) == (int)Param.NoFail
+                    );
+                }
+                BestRecords = dictionary;
+   
+                Plugin.Log?.Info($"{dictionary.Count} BestRecords");
+                // ==============
+               
             }
             catch (JsonException ex)
             {
